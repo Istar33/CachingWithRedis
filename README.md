@@ -164,7 +164,7 @@ curl -s http://localhost:3000/api/redis-info | python3 -m json.tool
 # Redis server — shows users, tokens, cache entries with TTLs
 curl -s http://localhost:3001/api/redis-info | python3 -m json.tool
 ```
-``
+
 ---
 
 ## Part 4: Explore the Web UI
