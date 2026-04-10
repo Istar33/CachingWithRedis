@@ -8,7 +8,10 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server-redis.js",
+    "start:memory": "node server-memory.js",
+    "start:redis": "node server-redis.js",
+    "compare": "PORT=3000 node server-memory.js & PORT=3001 node server-redis.js"
   },
   "keywords": [],
   "author": "",
