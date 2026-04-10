@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redis Caching Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; padding: 2rem; }
+    h1 { text-align: center; margin-bottom: 0.5rem; color: #333; }
+    .subtitle { text-align: center; margin-bottom: 2rem; color: #666; font-size: 0.95rem; }
+    .container { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    .card { background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .card.full-width { grid-column: 1 / -1; }
+    .card h2 { margin-bottom: 1rem; color: #444; font-size: 1.2rem; }
+    .card h3 { margin-bottom: 0.75rem; color: #555; font-size: 1rem; }
+    input { width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
+    button { width: 100%; padding: 0.6rem; border: none; border-radius: 4px; font-size: 0.95rem; cursor: pointer; color: white; margin-bottom: 0.5rem; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-register { background: #2ecc71; }
+    .btn-login { background: #3498db; }
+    .btn-secret { background: #9b59b6; }
+    .btn-logout { background: #e74c3c; }
+    .btn-nocache { background: #e67e22; }
+    .btn-cached { background: #27ae60; }
+    .btn-clear { background: #95a5a6; }
+    .btn-refresh-info { background: #3498db; }
+    .message { margin-top: 0.75rem; padding: 0.75rem; border-radius: 4px; font-size: 0.9rem; word-break: break-all; }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+    .info { background: #d1ecf1; color: #0c5460; }
+    .token-display { margin-top: 0.75rem; padding: 0.75rem; background: #f8f9fa; border-radius: 4px; font-size: 0.75rem; word-break: break-all; color: #666; }
+    .status { text-align: center; margin-bottom: 1.5rem; padding: 0.75rem; border-radius: 4px; font-size: 0.95rem; }
+    .logged-in { background: #d4edda; color: #155724; }
+    .logged-out { background: #f8f9fa; color: #666; }
+    .redis-status { text-align: center; margin-bottom: 1rem; padding: 0.5rem; border-radius: 4px; font-size: 0.85rem; }
+    .redis-connected { background: #d4edda; color: #155724; }
+    .redis-disconnected { background: #f8d7da; color: #721c24; }
+    .redis-checking { background: #fff3cd; color: #856404; }
+    .response-box { margin-top: 0.75rem; padding: 0.75rem; background: #f8f9fa; border-radius: 4px; font-size: 0.85rem; font-family: monospace; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
+    .speed-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.75rem; }
+    .speed-bar { padding: 0.5rem; border-radius: 4px; text-align: center; font-weight: bold; font-size: 0.9rem; }
+    .speed-slow { background: #f8d7da; color: #721c24; }
+    .speed-fast { background: #d4edda; color: #155724; }
+    .redis-info-box { margin-top: 0.75rem; padding: 0.75rem; background: #eef; border-radius: 4px; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function App() {
+      const [token, setToken] = useState(null);
+      const [username, setUsername] = useState('');
+      const [regUser, setRegUser] = useState('');
+      const [regPass, setRegPass] = useState('');
+      const [loginUser, setLoginUser] = useState('');
+      const [loginPass, setLoginPass] = useState('');
+      const [regMsg, setRegMsg] = useState(null);
+      const [loginMsg, setLoginMsg] = useState(null);
+      const [secretMsg, setSecretMsg] = useState(null);
+      const [redisStatus, setRedisStatus] = useState('checking');
+      const [redisInfo, setRedisInfo] = useState(null);
+      const [noCacheResult, setNoCacheResult] = useState(null);
+      const [cachedResult, setCachedResult] = useState(null);
+      const [loading, setLoading] = useState({ noCache: false, cached: false });
+
+      // Check Redis connection on load
+      useEffect(() => {
+        fetch('/api/health')
+          .then(r => r.json())
+          .then(data => setRedisStatus(data.redis === 'connected' ? 'connected' : 'disconnected'))
+          .catch(() => setRedisStatus('disconnected'));
+      }, []);
+
+      async function fetchRedisInfo() {
+        try {
+          const res = await fetch('/api/redis-info');
+          const data = await res.json();
+          setRedisInfo(data);
+        } catch {
+          setRedisInfo({ error: 'Failed to fetch' });
+        }
+      }
+
+      useEffect(() => { fetchRedisInfo(); }, []);
+
+      async function handleRegister(e) {
+        e.preventDefault();
+        setRegMsg(null);
+        try {
+          const res = await fetch('/api/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: regUser, password: regPass })
+          });
+          const data = await res.json();
+          setRegMsg({ type: res.ok ? 'success' : 'error', text: res.ok ? data.message : data.error });
+          if (res.ok) fetchRedisInfo();
+        } catch {
+          setRegMsg({ type: 'error', text: 'Request failed' });
+        }
+      }
+
+      async function handleLogin(e) {
+        e.preventDefault();
+        setLoginMsg(null);
+        try {
+          const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: loginUser, password: loginPass })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            setToken(data.token);
+            setUsername(loginUser);
+            setLoginMsg({ type: 'success', text: 'Logged in!' });
+            setSecretMsg(null);
+            fetchRedisInfo();
+          } else {
+            setLoginMsg({ type: 'error', text: data.error });
+          }
+        } catch {
+          setLoginMsg({ type: 'error', text: 'Request failed' });
+        }
+      }
+
+      async function handleGetSecret() {
+        setSecretMsg(null);
+        try {
+          const res = await fetch('/api/secret', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          setSecretMsg({ type: res.ok ? 'success' : 'error', text: res.ok ? data.message : data.error });
+        } catch {
+          setSecretMsg({ type: 'error', text: 'Request failed' });
+        }
+      }
+
+      async function handleNoCache() {
+        setNoCacheResult(null);
+        setLoading(l => ({ ...l, noCache: true }));
+        try {
+          const res = await fetch('/api/data/no-cache?q=widgets', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          setNoCacheResult(data);
+        } catch {
+          setNoCacheResult({ error: 'Request failed' });
+        }
+        setLoading(l => ({ ...l, noCache: false }));
+      }
+
+      async function handleCached() {
+        setCachedResult(null);
+        setLoading(l => ({ ...l, cached: true }));
+        try {
+          const res = await fetch('/api/data/cached?q=widgets', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          setCachedResult(data);
+          fetchRedisInfo();
+        } catch {
+          setCachedResult({ error: 'Request failed' });
+        }
+        setLoading(l => ({ ...l, cached: false }));
+      }
+
+      async function handleClearCache() {
+        try {
+          await fetch('/api/cache/clear', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          setCachedResult(null);
+          setNoCacheResult(null);
+          fetchRedisInfo();
+        } catch {}
+      }
+
+      function handleLogout() {
+        if (token) {
+          fetch('/api/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: '' })
+          });
+        }
+        setToken(null);
+        setUsername('');
+        setSecretMsg(null);
+        setLoginMsg(null);
+        setNoCacheResult(null);
+        setCachedResult(null);
+      }
+
+      const statusClass = redisStatus === 'connected' ? 'redis-connected'
+        : redisStatus === 'disconnected' ? 'redis-disconnected' : 'redis-checking';
+
+      return (
+        <div>
+          <h1>Caching with Redis</h1>
+          <p className="subtitle">JWT Authentication + Redis Caching Demo</p>
+
+          <div className={`redis-status ${statusClass}`}>
+            Redis: {redisStatus === 'connected' ? 'Connected' : redisStatus === 'disconnected' ? 'Disconnected' : 'Checking...'}
+            {redisInfo && redisStatus === 'connected' && (
+              <span> | {redisInfo.users} users, {redisInfo.refreshTokens} refresh tokens, {redisInfo.cacheEntries?.length || 0} cache entries</span>
+            )}
+          </div>
+
+          <div className={`status ${token ? 'logged-in' : 'logged-out'}`}>
+            {token ? `Logged in as: ${username}` : 'Not logged in'}
+          </div>
+
+          <div className="container">
+            {/* Register Card */}
+            <div className="card">
+              <h2>Register</h2>
+              <form onSubmit={handleRegister}>
+                <input type="text" placeholder="Username" value={regUser}
+                  onChange={e => setRegUser(e.target.value)} />
+                <input type="password" placeholder="Password" value={regPass}
+                  onChange={e => setRegPass(e.target.value)} />
+                <button type="submit" className="btn-register">Register</button>
+              </form>
+              {regMsg && <div className={`message ${regMsg.type}`}>{regMsg.text}</div>}
+              <div className="message info" style={{marginTop: '0.5rem', fontSize: '0.8rem'}}>
+                Users are stored in Redis as Hashes (user:username)
+              </div>
+            </div>
+
+            {/* Login Card */}
+            <div className="card">
+              <h2>Login</h2>
+              <form onSubmit={handleLogin}>
+                <input type="text" placeholder="Username" value={loginUser}
+                  onChange={e => setLoginUser(e.target.value)} />
+                <input type="password" placeholder="Password" value={loginPass}
+                  onChange={e => setLoginPass(e.target.value)} />
+                <button type="submit" className="btn-login">Login</button>
+              </form>
+              {loginMsg && <div className={`message ${loginMsg.type}`}>{loginMsg.text}</div>}
+              {token && <div className="token-display"><strong>Token:</strong> {token}</div>}
+              <div className="message info" style={{marginTop: '0.5rem', fontSize: '0.8rem'}}>
+                Refresh tokens are stored in a Redis Set
+              </div>
+            </div>
+
+            {/* Protected Route Card */}
+            <div className="card full-width">
+              <h2>Protected Route</h2>
+              <button onClick={handleGetSecret} disabled={!token} className="btn-secret">
+                Get Secret Message
+              </button>
+              {!token && <div className="message info">Log in first to access protected routes.</div>}
+              {secretMsg && <div className={`message ${secretMsg.type}`}>{secretMsg.text}</div>}
+              {token && (
+                <button onClick={handleLogout} className="btn-logout" style={{ marginTop: '0.5rem' }}>
+                  Logout
+                </button>
+              )}
+            </div>
+
+            {/* Caching Demo Card */}
+            <div className="card full-width">
+              <h2>Caching Demo</h2>
+              {!token && <div className="message info">Log in first to try the caching demo.</div>}
+              {token && (
+                <div>
+                  <p style={{marginBottom: '1rem', color: '#666', fontSize: '0.9rem'}}>
+                    Compare response times: the "no cache" endpoint always takes ~2 seconds (simulated slow query).
+                    The "cached" endpoint stores results in Redis with a 30-second TTL — the first call is slow (cache MISS),
+                    but subsequent calls are instant (cache HIT).
+                  </p>
+                  <div className="speed-comparison">
+                    <div>
+                      <button onClick={handleNoCache} disabled={loading.noCache} className="btn-nocache">
+                        {loading.noCache ? 'Fetching (~2s)...' : 'Fetch WITHOUT Cache'}
+                      </button>
+                      {noCacheResult && (
+                        <div className="response-box">
+                          <div className="speed-bar speed-slow">{noCacheResult.responseTime}</div>
+                          <pre style={{marginTop: '0.5rem'}}>{JSON.stringify(noCacheResult, null, 2)}</pre>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <button onClick={handleCached} disabled={loading.cached} className="btn-cached">
+                        {loading.cached ? 'Fetching...' : 'Fetch WITH Cache'}
+                      </button>
+                      {cachedResult && (
+                        <div className="response-box">
+                          <div className={`speed-bar ${cachedResult.source?.includes('HIT') ? 'speed-fast' : 'speed-slow'}`}>
+                            {cachedResult.responseTime} {cachedResult.source?.includes('HIT') ? '(CACHE HIT!)' : '(CACHE MISS)'}
+                          </div>
+                          <pre style={{marginTop: '0.5rem'}}>{JSON.stringify(cachedResult, null, 2)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <button onClick={handleClearCache} className="btn-clear" style={{marginTop: '1rem'}}>
+                    Clear Cache
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Redis Info Card */}
+            <div className="card full-width">
+              <h2>Redis Data Explorer</h2>
+              <button onClick={fetchRedisInfo} className="btn-refresh-info">Refresh Redis Info</button>
+              {redisInfo && (
+                <div className="redis-info-box">
+                  <p><strong>Users stored:</strong> {redisInfo.users} (Redis Hash per user)</p>
+                  <p><strong>Refresh tokens:</strong> {redisInfo.refreshTokens} (Redis Set)</p>
+                  <p><strong>Cache entries:</strong></p>
+                  {redisInfo.cacheEntries?.length > 0 ? (
+                    <ul style={{marginLeft: '1.5rem', marginTop: '0.25rem'}}>
+                      {redisInfo.cacheEntries.map((c, i) => (
+                        <li key={i}>{c.key} (TTL: {c.ttl}s)</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{color: '#888', marginLeft: '1.5rem'}}>No cache entries</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "Caching with Redis",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "postCreateCommand": "npm install",
+  "forwardPorts": [3000],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.vscode-node-azure-pack"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "secrets": {
+    "REDIS_URL": {
+      "description": "Redis Cloud public endpoint (host:port)"
+    },
+    "REDIS_USER": {
+      "description": "Redis Cloud username (usually 'default')"
+    },
+    "REDIS_PASSWORD": {
+      "description": "Redis Cloud default user password"
+    }
+  }
+}
